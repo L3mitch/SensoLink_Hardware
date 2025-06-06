@@ -6,6 +6,11 @@
 
 #define MAX_LEITURAS 50
 
+int totalLeituras = 0;
+
+unsigned long ultimaLeitura = 0;
+const unsigned long intervaloLeitura = 10000;
+
 struct Leitura
 {
   float temperatura;
@@ -14,53 +19,12 @@ struct Leitura
 };
 
 Leitura historico[MAX_LEITURAS];
-int totalLeituras = 0;
 
-unsigned long ultimaLeitura = 0;
-const unsigned long intervaloLeitura = 10000; // 10s
-
-// Simulação de sensores
 float temperatura = 25.1;
 float umidade = 60.2;
 String statusCortina = "parada";
 
-// GPIOs de controle do motor da cortina
-#define PIN_ABRIR 26
-#define PIN_FECHAR 27
-
 WebServer server(80);
-
-void abrirCortina()
-{
-  digitalWrite(PIN_FECHAR, LOW);
-  digitalWrite(PIN_ABRIR, HIGH);
-  statusCortina = "abrindo";
-  server.send(200, "text/plain", "Cortina abrindo");
-}
-
-void fecharCortina()
-{
-  digitalWrite(PIN_ABRIR, LOW);
-  digitalWrite(PIN_FECHAR, HIGH);
-  statusCortina = "fechando";
-  server.send(200, "text/plain", "Cortina fechando");
-}
-
-void enviarStatus()
-{
-  server.send(200, "text/plain", statusCortina);
-}
-
-void enviarJSON()
-{
-  String json = "{";
-  json += "\"status\":\"ok\",";
-  json += "\"temperatura\":" + String(temperatura, 1) + ",";
-  json += "\"umidade\":" + String(umidade, 1);
-  json += "}";
-  server.sendHeader("Access-Control-Allow-Origin", "*"); // libera para apps
-  server.send(200, "application/json", json);
-}
 
 String formatarHora(time_t t)
 {
@@ -107,10 +71,6 @@ void enviarHistorico()
 
 void configurarWebServer()
 {
-  server.on("/abrir", abrirCortina);
-  server.on("/fechar", fecharCortina);
-  server.on("/status", enviarStatus);
-  server.on("/dados", enviarJSON);
   server.on("/historico", enviarHistorico);
 
   server.begin();
@@ -120,11 +80,6 @@ void configurarWebServer()
 void setup()
 {
   Serial.begin(115200);
-
-  pinMode(PIN_ABRIR, OUTPUT);
-  pinMode(PIN_FECHAR, OUTPUT);
-  digitalWrite(PIN_ABRIR, LOW);
-  digitalWrite(PIN_FECHAR, LOW);
 
   configTime(-3 * 3600, 0, "pool.ntp.org", "time.nist.gov"); // UTC-3
   Serial.println("Sincronizando hora...");
