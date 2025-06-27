@@ -1,120 +1,97 @@
 #include <WiFi.h>
-#include <WebServer.h>
-#include <WiFiManager.h>
+#include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <time.h>
 
-#define MAX_LEITURAS 50
+// ==== CONFIGURAÇÕES DO USUÁRIO ====
+const char *ssid = "Kafei";
+const char *password = "kau15092003@CASA621";
 
-int totalLeituras = 0;
+const char *FIREBASE_HOST = "sensolink-bed71";
+const char *SENSOR_ID = "2Su7gQUwifDgnbkYEyt6";
+const char *FIREBASE_API_KEY = "AIzaSyDxnHt3H5eT2cAmQah7ztVfRyeDGqFUgNo";
+// ==================================
 
-unsigned long ultimaLeitura = 0;
-const unsigned long intervaloLeitura = 10000;
+// Constantes para construir URL Firebase
+String firebaseHost = "https://firestore.googleapis.com/v1/projects/" + String(FIREBASE_HOST) + "/databases/(default)/documents/sensors/" + String(SENSOR_ID) + "/readings?key=" + FIREBASE_API_KEY;
 
-struct Leitura
-{
-  float temperatura;
-  float umidade;
-  time_t timestamp;
-};
-
-Leitura historico[MAX_LEITURAS];
-
-float temperatura = 25.1;
-float umidade = 60.2;
-String statusCortina = "parada";
-
-WebServer server(80);
-
-String formatarHora(time_t t)
-{
-  struct tm *info = localtime(&t);
-  char buffer[25];
-  strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", info);
-  return String(buffer);
-}
-
-void adicionarLeitura(float temp, float umi)
-{
-  if (totalLeituras < MAX_LEITURAS)
-  {
-    historico[totalLeituras].temperatura = temp;
-    historico[totalLeituras].umidade = umi;
-    historico[totalLeituras].timestamp = time(nullptr);
-    totalLeituras++;
-  }
-  else
-  {
-    Serial.println("Histórico cheio, descartando leitura.");
-  }
-}
-
-void enviarHistorico()
-{
-  DynamicJsonDocument doc(4096); // Ajuste se precisar
-
-  JsonArray array = doc.createNestedArray("leituras");
-
-  for (int i = 0; i < totalLeituras; i++)
-  {
-    JsonObject obj = array.createNestedObject();
-    obj["temperatura"] = historico[i].temperatura;
-    obj["umidade"] = historico[i].umidade;
-    obj["hora"] = formatarHora(historico[i].timestamp);
-  }
-
-  String json;
-  serializeJson(doc, json);
-  server.sendHeader("Access-Control-Allow-Origin", "*");
-  server.send(200, "application/json", json);
-}
-
-void configurarWebServer()
-{
-  server.on("/historico", enviarHistorico);
-
-  server.begin();
-  Serial.println("Servidor HTTP iniciado");
-}
+// Protótipos de funções
+String getTimestampString();
+void sendToFirestore(float temperatura, String timestampISO);
 
 void setup()
 {
-  Serial.begin(115200);
+   Serial.begin(115200);
+   delay(1000);
 
-  configTime(-3 * 3600, 0, "pool.ntp.org", "time.nist.gov"); // UTC-3
-  Serial.println("Sincronizando hora...");
-  delay(1000);
+   // Conecta ao Wi-Fi
+   WiFi.begin(ssid, password);
+   Serial.print("Conectando ao Wi-Fi");
+   while (WiFi.status() != WL_CONNECTED)
+   {
+      delay(500);
+      Serial.print(".");
+   }
+   Serial.println("\nWi-Fi conectado!");
 
-  WiFiManager wm;
+   // Configura NTP (UTC)
+   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
 
-  // Opcional: resetar config segurando botão físico
-  // wm.resetSettings();
-
-  // Se não conseguir conectar, inicia o portal
-  if (!wm.autoConnect("Cortina-Setup"))
-  {
-    Serial.println("Falha ao conectar. Reiniciando...");
-    ESP.restart();
-  }
-
-  Serial.println("Conectado ao Wi-Fi!");
-  Serial.println("IP: " + WiFi.localIP().toString());
-
-  configurarWebServer();
+   // Aguarda sincronização
+   struct tm timeinfo;
+   Serial.print("Sincronizando horário");
+   while (!getLocalTime(&timeinfo))
+   {
+      Serial.print(".");
+      delay(1000);
+   }
+   Serial.println("\nHorário sincronizado com NTP!");
 }
 
 void loop()
 {
-  server.handleClient();
+   float temperatura = temperatureRead(); // Sensor interno do ESP32
+   String timestampISO = getTimestampString();
 
-  if (millis() - ultimaLeitura > intervaloLeitura)
-  {
-    ultimaLeitura = millis();
+   Serial.println("Temperatura: " + String(temperatura));
+   Serial.println("Timestamp: " + timestampISO);
 
-    // Aqui seria a leitura real do sensor
-    float temp = 25.1 + random(-10, 10) * 0.1;
-    float umi = 60.2 + random(-10, 10) * 0.1;
+   sendToFirestore(temperatura, timestampISO);
 
-    adicionarLeitura(temp, umi);
-  }
+   delay(60000); // Espera 1 minuto
+}
+
+String getTimestampString()
+{
+   struct tm timeinfo;
+   if (!getLocalTime(&timeinfo))
+   {
+      return "";
+   }
+
+   char iso8601[25];
+   strftime(iso8601, sizeof(iso8601), "%Y-%m-%dT%H:%M:%SZ", &timeinfo);
+   return String(iso8601);
+}
+
+void sendToFirestore(float temperatura, String timestampISO)
+{
+   HTTPClient http;
+   http.begin(firebaseHost);
+   http.addHeader("Content-Type", "application/json");
+
+   // Monta JSON
+   StaticJsonDocument<256> doc;
+   doc["fields"]["temperatura"]["doubleValue"] = temperatura;
+   doc["fields"]["timestamp"]["timestampValue"] = timestampISO;
+
+   String json;
+   serializeJson(doc, json);
+
+   // Envia
+   int responseCode = http.POST(json);
+   Serial.println("Código HTTP: " + String(responseCode));
+   Serial.println("Resposta: " + http.getString());
+
+   http.end();
 }
