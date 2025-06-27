@@ -1,14 +1,20 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <DHTesp.h>
 #include <time.h>
 
+
+#define DHT_PIN 21
+
+DHTesp dht;
+
 // ==== CONFIGURAÇÕES DO USUÁRIO ====
-const char *ssid = "Kafei";
-const char *password = "kau15092003@CASA621";
+const char *ssid = "Teste HTTP";
+const char *password = "123teste";
 
 const char *FIREBASE_HOST = "sensolink-bed71";
-const char *SENSOR_ID = "2Su7gQUwifDgnbkYEyt6";
+const char *SENSOR_ID = "3w1n9oYT74HPBgiCbCWb";
 const char *FIREBASE_API_KEY = "AIzaSyDxnHt3H5eT2cAmQah7ztVfRyeDGqFUgNo";
 // ==================================
 
@@ -21,6 +27,8 @@ void sendToFirestore(float temperatura, String timestampISO);
 
 void setup()
 {
+   dht.setup(DHT_PIN, DHTesp::DHT22);
+
    Serial.begin(115200);
    delay(1000);
 
@@ -50,7 +58,9 @@ void setup()
 
 void loop()
 {
-   float temperatura = temperatureRead(); // Sensor interno do ESP32
+   TempAndHumidity dados = dht.getTempAndHumidity();
+   float temperatura = dados.temperature;
+
    String timestampISO = getTimestampString();
 
    Serial.println("Temperatura: " + String(temperatura));
@@ -58,7 +68,7 @@ void loop()
 
    sendToFirestore(temperatura, timestampISO);
 
-   delay(60000); // Espera 1 minuto
+   delay(1000); // Espera 1 segundo
 }
 
 String getTimestampString()
